@@ -82,7 +82,15 @@ diff --git a/drivers/staging/rtl8712/rtl8712_recv.c b/drivers/staging/rtl8712/rt
 index 0ffb30f1af7e..e926bf5a6904 100644
 --- a/drivers/staging/rtl8712/rtl8712_recv.c
 +++ b/drivers/staging/rtl8712/rtl8712_recv.c
-@@ -51,12 +51,20 @@ void r8712_init_recv_priv(struct recv_priv *precvpriv,
+@@ -19,6 +19,7 @@
+ #include <linux/if_ether.h>
+ #include <linux/ip.h>
+ #include <net/cfg80211.h>
++#include <linux/kmemleak.h>
+ 
+ #include "osdep_service.h"
+ #include "drv_types.h"
+@@ -51,12 +52,20 @@ void r8712_init_recv_priv(struct recv_priv *precvpriv,
  	for (i = 0; i < NR_RECVBUFF; i++) {
  		INIT_LIST_HEAD(&precvbuf->list);
  		spin_lock_init(&precvbuf->recvbuf_lock);
@@ -104,3 +112,4 @@ index 0ffb30f1af7e..e926bf5a6904 100644
  		precvbuf++;
  	}
  	precvpriv->free_recv_buf_queue_cnt = NR_RECVBUFF;
+-- 
