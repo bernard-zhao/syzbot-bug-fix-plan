@@ -35,8 +35,9 @@
  *  iso_packets is 0, so the size of the actual application is sizeof(struct urb) -> the calculation result is 192, which matches the size of the leak point
  */
  
+ ================================================================================================
  /*
-  * first version 
+  * first version 2022-05-10
   * fix patch
   */
 
@@ -68,4 +69,38 @@ index 0ffb30f1af7e..97e866c63876 100644
  		list_add_tail(&precvbuf->list,
 -- 
 2.33.1
- 
+============================================================================================
+/*
+ * first version test failed, consider kmemleak false positive report
+ * version 2, 2022-05-11
+ */
+---
+ drivers/staging/rtl8712/rtl8712_recv.c | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/staging/rtl8712/rtl8712_recv.c b/drivers/staging/rtl8712/rtl8712_recv.c
+index 0ffb30f1af7e..e926bf5a6904 100644
+--- a/drivers/staging/rtl8712/rtl8712_recv.c
++++ b/drivers/staging/rtl8712/rtl8712_recv.c
+@@ -51,12 +51,20 @@ void r8712_init_recv_priv(struct recv_priv *precvpriv,
+ 	for (i = 0; i < NR_RECVBUFF; i++) {
+ 		INIT_LIST_HEAD(&precvbuf->list);
+ 		spin_lock_init(&precvbuf->recvbuf_lock);
+-		if (r8712_os_recvbuf_resource_alloc(padapter, precvbuf))
++		if (r8712_os_recvbuf_resource_alloc(padapter, precvbuf)) {
++			int j = i;
++
++			while (j-- > 0) {
++				r8712_os_recvbuf_resource_free(padapter, precvbuf);
++				precvbuf--;
++			}
+ 			break;
++		}
+ 		precvbuf->ref_cnt = 0;
+ 		precvbuf->adapter = padapter;
+ 		list_add_tail(&precvbuf->list,
+ 			      &(precvpriv->free_recv_buf_queue.queue));
++		kmemleak_not_leak(precvbuf->purb);
+ 		precvbuf++;
+ 	}
+ 	precvpriv->free_recv_buf_queue_cnt = NR_RECVBUFF;
