@@ -1,0 +1,71 @@
+/*
+ * syzbot link: https://syzkaller.appspot.com/bug?id=3a325b8389fc41c1bc94de0f4ac437ed13cce584
+ * disscuss link: https://groups.google.com/g/syzkaller-bugs/c/UtDg4rvjnwc/m/ctLzZDcaBgAJ
+ */
+
+/*
+ * Analysis from Bernard Zhao
+ * zhaojunkui2008@126.com || bernard@vivo.com
+ * If reprinted, please indicate the source
+ * 
+ * For this issue，I understand that the following call sequence causing some memory leaks:
+ * usb_probe_interface
+ *    r871xu_drv_init
+ *        r8712_init_drv_sw
+ *            _r8712_init_recv_priv
+ *                r8712_init_recv_priv//void type function
+ *                    for (i = 0; i < NR_RECVBUFF;
+ *                        if (r8712_os_recvbuf_resource_alloc(padapter, precvbuf))
+ *                             r8712_os_recvbuf_resource_alloc
+ *                                precvbuf->purb = usb_alloc_urb
+ *                                    kmalloc
+ *                              
+ *                           break;//There may be some memory leak, break directly after  r8712_os_recvbuf_resource_alloc  exception, and no cleanup operation is performed                             
+ *       if (status)//The exception branches are cleaned up here, and the memory requested by the underlying usb_alloc_urb can be clear, so theoretically, there will be no memory leaks here and up caller functions.
+ *           goto dvobj_deinit
+ *               r8712_free_drv_sw // this function do the detail cleanup job, and could clean  usb_alloc_urb memory.
+ *               padapter->dvobj_deinit(padapter)
+ *               free_netdev(pnetdev)
+ *               usb_put_dev(udev)
+ *               usb_set_intfdata(pusb_intf, NULL)
+ *
+ * And the size of the memory leak can be seen in the log is 192 bytes
+ * we check the size of the usb_alloc_urb application is
+ *  usb_alloc_urb(0, -> kmalloc(struct_size(urb, iso_frame_desc, iso_packets)) ->  sizeof(struct urb)+iso_packets*sizeof(struct iso_frame_desc)
+ *  iso_packets is 0, so the size of the actual application is sizeof(struct urb) -> the calculation result is 192, which matches the size of the leak point
+ */
+ 
+ /*
+  * first version 
+  * fix patch
+  */
+
+---
+ drivers/staging/rtl8712/rtl8712_recv.c | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/staging/rtl8712/rtl8712_recv.c b/drivers/staging/rtl8712/rtl8712_recv.c
+index 0ffb30f1af7e..97e866c63876 100644
+--- a/drivers/staging/rtl8712/rtl8712_recv.c
++++ b/drivers/staging/rtl8712/rtl8712_recv.c
+@@ -51,8 +51,16 @@ void r8712_init_recv_priv(struct recv_priv *precvpriv,
+ 	for (i = 0; i < NR_RECVBUFF; i++) {
+ 		INIT_LIST_HEAD(&precvbuf->list);
+ 		spin_lock_init(&precvbuf->recvbuf_lock);
+-		if (r8712_os_recvbuf_resource_alloc(padapter, precvbuf))
++		if (r8712_os_recvbuf_resource_alloc(padapter, precvbuf)) {
++			int j = i;
++
++			while (j-- > 0) {
++				if (precvbuf)
++					r8712_os_recvbuf_resource_free(padapter, precvbuf);
++				precvbuf--;
++			}
+ 			break;
++		}
+ 		precvbuf->ref_cnt = 0;
+ 		precvbuf->adapter = padapter;
+ 		list_add_tail(&precvbuf->list,
+-- 
+2.33.1
+ 
